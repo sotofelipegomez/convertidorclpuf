@@ -6,12 +6,10 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Herramientas UF Pro", page_icon="📈")
 
 # --- 2. PERSISTENCIA DEL HISTORIAL ACUMULADO ---
-# Este historial NO se borra al cambiar de pestaña
 if 'historial_acumulado' not in st.session_state:
     st.session_state.historial_acumulado = []
 
 # --- 3. GESTIÓN DE LIMPIEZA DE VENTANA ACTUAL ---
-# Este historial SI se borra al cambiar de pestaña
 if 'last_opcion' not in st.session_state:
     st.session_state.last_opcion = ""
     st.session_state.historial_ventana = []
@@ -49,7 +47,6 @@ opcion = st.sidebar.radio(
     ["UF Automática (Fecha)", "UF Manual (Valor fijo)", "Buscar Fecha por Valor", "📜 Historial General"]
 )
 
-# Lógica de limpieza al cambiar de ventana (solo para las ventanas de cálculo)
 if st.session_state.last_opcion != opcion:
     st.session_state.historial_ventana = []
     st.session_state.last_opcion = opcion
@@ -70,31 +67,40 @@ if opcion == "UF Automática (Fecha)":
             
             if valor_uf:
                 st.info(f"Valor UF detectado: **${formato_chile(valor_uf)}**")
-                with st.form("form_auto", clear_on_submit=True):
-                    monto_input = st.text_input("Ingresa cantidad en CLP:")
-                    if st.form_submit_button("Convertir"):
-                        monto_num = limpiar_monto(monto_input)
-                        if monto_num:
-                            res_uf = monto_num / valor_uf
-                            item = {"clp": monto_num, "uf": res_uf, "ref": f"Fecha: {fecha_str} (${formato_chile(valor_uf)})", "tipo": "AUTO"}
-                            # Guardar en ambos historiales
-                            st.session_state.historial_ventana.append(item)
-                            st.session_state.historial_acumulado.append(item)
-                            st.rerun()
                 
+                with st.form("form_auto", clear_on_submit=True):
+                    col_a, col_b = st.columns(2)
+                    monto_clp = col_a.text_input("CLP a UF (Ingresa pesos):")
+                    monto_uf = col_b.text_input("UF a CLP (Ingresa UF):")
+                    enviar = st.form_submit_button("Convertir")
+                    
+                    if enviar:
+                        res = None
+                        if monto_clp:
+                            num = limpiar_monto(monto_clp)
+                            if num:
+                                calc = num / valor_uf
+                                res = {"orig": f"${formato_chile(num, True)}", "dest": f"{formato_chile(calc)} UF", "ref": f"Fecha: {fecha_str}", "tipo": "AUTO"}
+                        elif monto_uf:
+                            num = limpiar_monto(monto_uf)
+                            if num:
+                                calc = num * valor_uf
+                                res = {"orig": f"{formato_chile(num)} UF", "dest": f"${formato_chile(calc, True)}", "ref": f"Fecha: {fecha_str}", "tipo": "AUTO"}
+                        
+                        if res:
+                            st.session_state.historial_ventana.append(res)
+                            st.session_state.historial_acumulado.append(res)
+                            st.rerun()
+
                 if st.session_state.historial_ventana:
                     actual = st.session_state.historial_ventana[-1]
                     st.markdown("### 💎 Resultado Actual:")
-                    c1, c2 = st.columns(2)
-                    c1.metric("MONTO CLP", f"${formato_chile(actual['clp'], True)}")
-                    c2.metric("TOTAL EN UF", f"{formato_chile(actual['uf'])} UF")
-                    st.caption(f"📌 Calculado con {actual['ref']}")
-                    
+                    st.info(f"**{actual['orig']}** equivale a **{actual['dest']}**")
                     st.divider()
                     for it in reversed(st.session_state.historial_ventana):
-                        st.code(f"CLP: ${formato_chile(it['clp'], True)} -> {formato_chile(it['uf'])} UF | {it['ref']}")
-            else: st.warning("No hay datos para esa fecha.")
-        except ValueError: st.error("Formato DD-MM-AAAA incorrecto.")
+                        st.code(f"{it['orig']} -> {it['dest']} | {it['ref']}")
+            else: st.warning("No hay datos.")
+        except: st.error("Error en fecha.")
 
 elif opcion == "UF Manual (Valor fijo)":
     st.title("⚙️ UF Manual")
@@ -104,31 +110,37 @@ elif opcion == "UF Manual (Valor fijo)":
     if valor_uf_fijo:
         st.write(f"-> Valor UF fijado: **${formato_chile(valor_uf_fijo)}**")
         with st.form("form_manual", clear_on_submit=True):
-            monto_input = st.text_input("2. Ingresa cantidad en CLP:")
+            col_a, col_b = st.columns(2)
+            monto_clp = col_a.text_input("CLP a UF:")
+            monto_uf = col_b.text_input("UF a CLP:")
             if st.form_submit_button("Convertir"):
-                monto_num = limpiar_monto(monto_input)
-                if monto_num:
-                    res_uf = monto_num / valor_uf_fijo
-                    item = {"clp": monto_num, "uf": res_uf, "ref": f"UF Fija: ${formato_chile(valor_uf_fijo)}", "tipo": "MANUAL"}
-                    st.session_state.historial_ventana.append(item)
-                    st.session_state.historial_acumulado.append(item)
+                res = None
+                if monto_clp:
+                    num = limpiar_monto(monto_clp)
+                    if num:
+                        calc = num / valor_uf_fijo
+                        res = {"orig": f"${formato_chile(num, True)}", "dest": f"{formato_chile(calc)} UF", "ref": "UF Fija", "tipo": "MANUAL"}
+                elif monto_uf:
+                    num = limpiar_monto(monto_uf)
+                    if num:
+                        calc = num * valor_uf_fijo
+                        res = {"orig": f"{formato_chile(num)} UF", "dest": f"${formato_chile(calc, True)}", "ref": "UF Fija", "tipo": "MANUAL"}
+                
+                if res:
+                    st.session_state.historial_ventana.append(res)
+                    st.session_state.historial_acumulado.append(res)
                     st.rerun()
 
         if st.session_state.historial_ventana:
             actual = st.session_state.historial_ventana[-1]
             st.markdown("### 💎 Último Cálculo:")
-            c1, c2 = st.columns(2)
-            c1.metric("Ingresado", f"${formato_chile(actual['clp'], True)}")
-            c2.metric("Conversión", f"{formato_chile(actual['uf'])} UF")
-            st.caption(f"📌 Calculado con {actual['ref']}")
-            
+            st.success(f"**{actual['orig']}** = **{actual['dest']}**")
             st.divider()
             for it in reversed(st.session_state.historial_ventana):
-                st.code(f"MONTO: ${formato_chile(it['clp'], True)} | UF: {formato_chile(it['uf'])} | {it['ref']}")
+                st.code(f"{it['orig']} -> {it['dest']} | {it['ref']}")
 
 elif opcion == "Buscar Fecha por Valor":
     st.title("🔍 Buscar Fecha según Valor UF")
-    # (Lógica de búsqueda igual, no afecta historial de conversión)
     col1, col2 = st.columns(2)
     with col1: ini = st.text_input("Fecha Inicio:", placeholder="01-01-2024")
     with col2: fin = st.text_input("Fecha Término:", placeholder="31-12-2024")
@@ -158,19 +170,14 @@ elif opcion == "Buscar Fecha por Valor":
                     st.warning(f"Más cercano: {closest['date']} (${formato_chile(closest['valor'])})")
         except: st.error("Error en formato de fechas.")
 
-# --- 7. VENTANA ETERNA DE HISTORIAL GENERAL ---
 elif opcion == "📜 Historial General":
     st.title("📜 Historial Acumulado Eterno")
-    st.write("Aquí se guardan todos los cálculos realizados en esta sesión, sin importar si cambias de ventana.")
-    
     if st.button("🗑️ Borrar Historial Eterno"):
         st.session_state.historial_acumulado = []
         st.rerun()
-    
     st.divider()
     if st.session_state.historial_acumulado:
         for item in reversed(st.session_state.historial_acumulado):
-            tipo_label = "AUTO" if item['tipo'] == "AUTO" else "MANUAL"
-            st.code(f"[{tipo_label}] CLP: ${formato_chile(item['clp'], True)} -> {formato_chile(item['uf'])} UF | {item['ref']}")
+            st.code(f"[{item['tipo']}] {item['orig']} -> {item['dest']} | {item['ref']}")
     else:
         st.info("El historial está vacío.")
