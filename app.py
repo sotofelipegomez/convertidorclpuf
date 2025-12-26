@@ -24,7 +24,7 @@ def limpiar_monto(texto):
         return float(res)
     except: return None
 
-# --- GESTIÓN DE HISTORIAL (Se limpia al cambiar de página) ---
+# --- GESTIÓN DE SESIÓN ---
 if 'last_opcion' not in st.session_state:
     st.session_state.last_opcion = ""
     st.session_state.historial = []
@@ -36,12 +36,11 @@ opcion = st.sidebar.radio(
     ["UF Automática (Fecha)", "UF Manual (Valor fijo)", "Buscar Fecha por Valor"]
 )
 
-# Si el usuario cambia de pestaña, limpiamos el historial
 if st.session_state.last_opcion != opcion:
     st.session_state.historial = []
     st.session_state.last_opcion = opcion
 
-# --- INTERFAZ ---
+# --- LÓGICA DE PÁGINAS ---
 
 if opcion == "UF Automática (Fecha)":
     st.title("💰 UF Automática por Fecha")
@@ -58,7 +57,6 @@ if opcion == "UF Automática (Fecha)":
             if valor_uf:
                 st.info(f"Valor UF detectado: **${valor_uf:,.2f}**")
                 
-                # Input de montos
                 with st.form("form_auto", clear_on_submit=True):
                     monto_input = st.text_input("Ingresa cantidad en CLP:")
                     enviar = st.form_submit_button("Convertir")
@@ -67,19 +65,19 @@ if opcion == "UF Automática (Fecha)":
                         monto_num = limpiar_monto(monto_input)
                         if monto_num:
                             res_uf = monto_num / valor_uf
-                            # Guardar en historial
-                            st.session_state.historial.append({
-                                "clp": monto_num,
-                                "uf": res_uf
-                            })
+                            st.session_state.historial.append({"clp": monto_num, "uf": res_uf})
                 
-                # Mostrar historial estilo consola
+                # --- MOSTRAR RESULTADO ACTUAL EN GRANDE ---
+                if st.session_state.historial:
+                    actual = st.session_state.historial[-1]
+                    col1, col2 = st.columns(2)
+                    col1.metric("ÚLTIMO CLP", f"${actual['clp']:,.0f}".replace(",", "."))
+                    col2.metric("EQUIVALENCIA UF", f"{actual['uf']:,.2f} UF")
+                    st.divider()
+
+                # Historial tipo consola
                 for item in reversed(st.session_state.historial):
-                    st.code(f"""
-=============================================
-MONTO INGRESADO: ${item['clp']:,.2f} CLP
-EQUIVALENCIA EN UF: {item['uf']:,.2f} UF
-=============================================""")
+                    st.code(f"CLP: ${item['clp']:,.2f} -> UF: {item['uf']:,.2f}")
 
             else: st.warning("No hay datos para esa fecha.")
         except ValueError: st.error("Formato DD-MM-AAAA incorrecto.")
@@ -90,7 +88,7 @@ elif opcion == "UF Manual (Valor fijo)":
     valor_uf_fijo = limpiar_monto(uf_manual_txt)
     
     if valor_uf_fijo:
-        st.write(f"-> Valor UF fijado para esta sesión: **${valor_uf_fijo:,.2f}**")
+        st.write(f"-> Valor UF fijado: **${valor_uf_fijo:,.2f}**")
         
         with st.form("form_manual", clear_on_submit=True):
             monto_input = st.text_input("2. Ingresa cantidad en CLP:")
@@ -102,18 +100,25 @@ elif opcion == "UF Manual (Valor fijo)":
                     res_uf = monto_num / valor_uf_fijo
                     st.session_state.historial.append({"clp": monto_num, "uf": res_uf})
 
+        # --- MOSTRAR RESULTADO ACTUAL EN GRANDE ---
+        if st.session_state.historial:
+            actual = st.session_state.historial[-1]
+            st.subheader("Resultado Actual:")
+            c1, c2 = st.columns(2)
+            c1.metric("Monto CLP", f"${actual['clp']:,.0f}".replace(",", "."))
+            c2.metric("Total UF", f"{actual['uf']:,.2f} UF")
+            st.markdown("---")
+
+        # Historial abajo
         for item in reversed(st.session_state.historial):
-            st.code(f"""
-=============================================
-MONTO INGRESADO: ${item['clp']:,.2f} CLP
-EQUIVALENCIA EN UF: {item['uf']:,.2f} UF
-=============================================""")
+            st.code(f"MONTO: ${item['clp']:,.0f} CLP | RESULTADO: {item['uf']:,.2f} UF")
 
 elif opcion == "Buscar Fecha por Valor":
     st.title("🔍 Buscar Fecha según Valor UF")
+    # (Se mantiene igual que el anterior...)
     col1, col2 = st.columns(2)
     with col1: inicio_txt = st.text_input("Fecha Inicio:", placeholder="01-01-2024")
-    with col2: fin_txt = st.text_input("Fecha Término:", placeholder="31-01-2024")
+    with col2: fin_txt = st.text_input("Fecha Término:", placeholder="31-12-2024")
     target_txt = st.text_input("Valor UF a buscar:")
     target_val = limpiar_monto(target_txt)
 
@@ -134,11 +139,10 @@ elif opcion == "Buscar Fecha por Valor":
                 progress_bar.progress((i + 1) / total_days)
             
             if uf_history:
-                tolerance = 0.01
-                exacts = [it['date'] for it in uf_history if abs(it['valor'] - target_val) < tolerance]
+                exacts = [it['date'] for it in uf_history if abs(it['valor'] - target_val) < 0.01]
                 if exacts:
                     for e in exacts: st.success(f"✅ Encontrado: {e}")
                 else:
                     closest = min(uf_history, key=lambda x: abs(x['valor'] - target_val))
-                    st.warning(f"No exacto. Más cercano: {closest['date']} (${closest['valor']:,.2f})")
-        except: st.error("Revisa el formato de fechas (DD-MM-AAAA)")
+                    st.warning(f"Más cercano: {closest['date']} (${closest['valor']:,.2f})")
+        except: st.error("Error en formato de fechas.")
