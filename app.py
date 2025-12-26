@@ -2,14 +2,9 @@ import streamlit as st
 import requests
 from datetime import datetime, timedelta
 
-# --- 1. CONFIGURACIÓN INICIAL ---
-st.set_page_config(page_title="Herramientas UF Pro", page_icon="📈", layout="centered")
+st.set_page_config(page_title="Herramientas UF Pro", page_icon="📈")
 
-# --- 2. INICIALIZACIÓN DEL ESTADO (Esto no se borra al navegar) ---
-if 'lista_negocios' not in st.session_state:
-    st.session_state['lista_negocios'] = []
-
-# --- 3. FUNCIÓN DE LIMPIEZA ROBUSTA ---
+# --- FUNCIÓN DE LIMPIEZA ROBUSTA ---
 def limpiar_monto(texto):
     if not texto or not texto.strip(): return None
     t = texto.strip()
@@ -29,19 +24,24 @@ def limpiar_monto(texto):
         return float(res)
     except: return None
 
-# --- 4. MENÚ LATERAL ---
+# --- GESTIÓN DE SESIÓN ---
+if 'last_opcion' not in st.session_state:
+    st.session_state.last_opcion = ""
+    st.session_state.historial = []
+
+# MENÚ LATERAL
 st.sidebar.title("Menú Principal")
 opcion = st.sidebar.radio(
     "Selecciona una herramienta:",
     ["UF Automática (Fecha)", "UF Manual (Valor fijo)", "Buscar Fecha por Valor"]
 )
 
-st.sidebar.divider()
-if st.sidebar.button("🗑️ BORRAR TODO EL HISTORIAL"):
-    st.session_state['lista_negocios'] = []
-    st.rerun()
+# Limpiar historial si cambia de herramienta
+if st.session_state.last_opcion != opcion:
+    st.session_state.historial = []
+    st.session_state.last_opcion = opcion
 
-# --- 5. LÓGICA DE HERRAMIENTAS ---
+# --- LÓGICA DE PÁGINAS ---
 
 if opcion == "UF Automática (Fecha)":
     st.title("💰 UF Automática por Fecha")
@@ -57,84 +57,101 @@ if opcion == "UF Automática (Fecha)":
             
             if valor_uf:
                 st.info(f"Valor UF detectado: **${valor_uf:,.2f}**")
+                
                 with st.form("form_auto", clear_on_submit=True):
                     monto_input = st.text_input("Ingresa cantidad en CLP:")
-                    if st.form_submit_button("Convertir"):
+                    enviar = st.form_submit_button("Convertir")
+                    
+                    if enviar and monto_input:
                         monto_num = limpiar_monto(monto_input)
                         if monto_num:
                             res_uf = monto_num / valor_uf
-                            # GUARDAR EN EL ESTADO GLOBAL
-                            st.session_state['lista_negocios'].append({
-                                "tipo": "AUTO", "clp": monto_num, "uf": res_uf, "info": fecha_str
-                            })
-                            st.rerun()
+                            st.session_state.historial.append({"clp": monto_num, "uf": res_uf, "fecha": fecha_str})
+                
+                if st.session_state.historial:
+                    actual = st.session_state.historial[-1]
+                    st.subheader("Resultado Actual:")
+                    col1, col2 = st.columns(2)
+                    col1.metric("MONTO CLP", f"${actual['clp']:,.0f}".replace(",", "."))
+                    col2.metric("TOTAL EN UF", f"{actual['uf']:,.2f} UF")
+                    
+                    if st.button("Limpiar historial de hoy"):
+                        st.session_state.historial = []
+                        st.rerun()
+                    
+                    st.divider()
+                    st.write("📜 Historial de esta sesión:")
+                    for item in reversed(st.session_state.historial):
+                        st.code(f"CLP: ${item['clp']:,.0f} -> {item['uf']:,.2f} UF")
+
             else: st.warning("No hay datos para esa fecha.")
         except ValueError: st.error("Formato DD-MM-AAAA incorrecto.")
 
 elif opcion == "UF Manual (Valor fijo)":
     st.title("⚙️ UF Manual")
-    uf_manual_txt = st.text_input("1. Valor UF base:", placeholder="33750.00")
+    uf_manual_txt = st.text_input("1. Ingresa el valor de la UF base:", placeholder="33750.00")
     valor_uf_fijo = limpiar_monto(uf_manual_txt)
     
     if valor_uf_fijo:
-        st.write(f"-> UF fijada: **${valor_uf_fijo:,.2f}**")
+        st.write(f"-> Valor UF fijado: **${valor_uf_fijo:,.2f}**")
+        
         with st.form("form_manual", clear_on_submit=True):
-            monto_input = st.text_input("2. Cantidad en CLP:")
-            if st.form_submit_button("Convertir"):
+            monto_input = st.text_input("2. Ingresa cantidad en CLP:")
+            enviar = st.form_submit_button("Convertir")
+            
+            if enviar and monto_input:
                 monto_num = limpiar_monto(monto_input)
                 if monto_num:
                     res_uf = monto_num / valor_uf_fijo
-                    st.session_state['lista_negocios'].append({
-                        "tipo": "MANUAL", "clp": monto_num, "uf": res_uf, "info": f"UF: {valor_uf_fijo:,.0f}"
-                    })
-                    st.rerun()
+                    st.session_state.historial.append({"clp": monto_num, "uf": res_uf})
+
+        if st.session_state.historial:
+            actual = st.session_state.historial[-1]
+            st.markdown("### 💎 Último Cálculo:")
+            c1, c2 = st.columns(2)
+            c1.metric("Ingresado", f"${actual['clp']:,.0f}".replace(",", "."))
+            c2.metric("Conversión", f"{actual['uf']:,.2f} UF")
+            
+            if st.button("Borrar lista"):
+                st.session_state.historial = []
+                st.rerun()
+            
+            st.divider()
+            for item in reversed(st.session_state.historial):
+                st.code(f"MONTO: ${item['clp']:,.0f} | UF: {item['uf']:,.2f}")
 
 elif opcion == "Buscar Fecha por Valor":
     st.title("🔍 Buscar Fecha según Valor UF")
     col1, col2 = st.columns(2)
-    with col1: ini = st.text_input("Fecha Inicio:", placeholder="01-01-2024")
-    with col2: fin = st.text_input("Fecha Término:", placeholder="31-12-2024")
-    val_buscar = st.text_input("Valor UF a buscar:")
-    target = limpiar_monto(val_buscar)
+    with col1: inicio_txt = st.text_input("Fecha Inicio:", placeholder="01-01-2024")
+    with col2: fin_txt = st.text_input("Fecha Término:", placeholder="31-12-2024")
+    target_txt = st.text_input("Valor UF a buscar:")
+    target_val = limpiar_monto(target_txt)
 
-    if st.button("Iniciar Búsqueda") and target:
+    if st.button("Iniciar Búsqueda") and target_val:
         try:
-            start = datetime.strptime(ini, "%d-%m-%Y")
-            end = datetime.strptime(fin, "%d-%m-%Y")
+            start_date = datetime.strptime(inicio_txt, "%d-%m-%Y")
+            end_date = datetime.strptime(fin_txt, "%d-%m-%Y")
             uf_history = []
-            progress = st.progress(0)
-            total = (end - start).days + 1
-            for i in range(total):
-                curr = (start + timedelta(days=i)).strftime("%d-%m-%Y")
+            total_days = (end_date - start_date).days + 1
+            progress_bar = st.progress(0)
+            
+            for i in range(total_days):
+                current = start_date + timedelta(days=i)
+                f_str = current.strftime("%d-%m-%Y")
                 try:
-                    r = requests.get(f"https://mindicador.cl/api/uf/{curr}", timeout=5).json()
-                    if r['serie']: uf_history.append({'date': curr, 'valor': r['serie'][0]['valor']})
+                    r = requests.get(f"https://mindicador.cl/api/uf/{f_str}", timeout=5).json()
+                    if r['serie']:
+                        uf_history.append({'date': f_str, 'valor': r['serie'][0]['valor']})
                 except: pass
-                progress.progress((i + 1) / total)
+                progress_bar.progress((i + 1) / total_days)
             
             if uf_history:
-                exacts = [it['date'] for it in uf_history if abs(it['valor'] - target) < 0.01]
+                exacts = [it['date'] for it in uf_history if abs(it['valor'] - target_val) < 0.01]
                 if exacts:
-                    for e in exacts: st.success(f"✅ Encontrado: {e}")
+                    st.success(f"Encontrado en {len(exacts)} fechas:")
+                    for e in exacts: st.write(f"✅ {e}")
                 else:
-                    closest = min(uf_history, key=lambda x: abs(x['valor'] - target))
+                    closest = min(uf_history, key=lambda x: abs(x['valor'] - target_val))
                     st.warning(f"Más cercano: {closest['date']} (${closest['valor']:,.2f})")
-        except: st.error("Error en fechas.")
-
-# --- 6. VISUALIZACIÓN DEL HISTORIAL (FUERA DE LOS IF) ---
-# Al estar aquí, se muestra en todas las pestañas y no se borra.
-if st.session_state['lista_negocios']:
-    st.markdown("---")
-    st.subheader("📜 Historial de Cálculos")
-    
-    # Mostrar último resultado en GRANDE
-    ult = st.session_state['lista_negocios'][-1]
-    st.write("✨ **Último resultado:**")
-    c1, c2 = st.columns(2)
-    c1.metric("Monto CLP", f"${ult['clp']:,.0f}".replace(",", "."))
-    c2.metric("Equivalente UF", f"{ult['uf']:,.2f}")
-    
-    # Mostrar lista completa en formato consola
-    with st.expander("Ver historial completo", expanded=True):
-        for item in reversed(st.session_state['lista_negocios']):
-            st.code(f"[{item['tipo']}] ${item['clp']:,.0f} CLP -> {item['uf']:,.2f} UF ({item['info']})")
+        except: st.error("Error en formato de fechas.")
