@@ -161,7 +161,7 @@ elif opcion == "Buscar Fecha por Valor":
 # --- 7. VENTANA ETERNA DE HISTORIAL GENERAL ---
 elif opcion == "📜 Historial General":
     st.title("📜 Historial Acumulado Eterno")
-    st.write("Aquí se guardan todos los cálculos realizados en esta sesión, sin importar si cambias de ventana.")
+    st.write("Aquí se guardan todos los cálculos realizados en esta sesión.")
     
     if st.button("🗑️ Borrar Historial Eterno"):
         st.session_state.historial_acumulado = []
@@ -174,3 +174,4 @@ elif opcion == "📜 Historial General":
             st.code(f"[{tipo_label}] CLP: ${formato_chile(item['clp'], True)} -> {formato_chile(item['uf'])} UF | {item['ref']}")
     else:
         st.info("El historial está vacío.")
+
