@@ -2,10 +2,8 @@ import streamlit as st
 import requests
 from datetime import datetime, timedelta
 
-# --- CONFIGURACIÓN DE LA WEB ---
 st.set_page_config(page_title="Herramientas UF Pro", page_icon="📈")
 
-# --- FUNCIÓN DE LIMPIEZA ROBUSTA ---
 def limpiar_monto(texto):
     if not texto or not texto.strip(): return None
     t = texto.strip()
@@ -25,19 +23,17 @@ def limpiar_monto(texto):
         return float(res)
     except: return None
 
-# --- MENÚ LATERAL ---
+# MENÚ LATERAL
 st.sidebar.title("Menú Principal")
 opcion = st.sidebar.radio(
     "Selecciona una herramienta:",
     ["UF Automática (Fecha)", "UF Manual (Valor fijo)", "Buscar Fecha por Valor"]
 )
 
-# --- 1. UF AUTOMÁTICA ---
 if opcion == "UF Automática (Fecha)":
     st.title("💰 UF Automática por Fecha")
     fecha_sel = st.date_input("Selecciona la fecha:", value=datetime.now())
     fecha_str = fecha_sel.strftime("%d-%m-%Y")
-    
     url = f"https://mindicador.cl/api/uf/{fecha_str}"
     try:
         data = requests.get(url).json()
@@ -52,7 +48,6 @@ if opcion == "UF Automática (Fecha)":
         else: st.warning("No hay datos para esta fecha.")
     except: st.error("Error de conexión.")
 
-# --- 2. UF MANUAL ---
 elif opcion == "UF Manual (Valor fijo)":
     st.title("⚙️ UF Manual")
     uf_manual_txt = st.text_input("Valor de la UF a usar:", placeholder="Ej: 37500.50")
@@ -65,20 +60,15 @@ elif opcion == "UF Manual (Valor fijo)":
             res = monto_num / valor_uf_fijo
             st.metric("Resultado", f"{res:,.2f} UF")
 
-# --- 3. BUSCAR FECHA POR VALOR (Nuevo Código) ---
 elif opcion == "Buscar Fecha por Valor":
     st.title("🔍 Buscar Fecha según Valor UF")
-    st.write("Busca qué día la UF tuvo (o se acercó) a un valor específico.")
-
     col1, col2 = st.columns(2)
     with col1:
         start_date = st.date_input("Fecha Inicio", datetime.now() - timedelta(days=30))
     with col2:
         end_date = st.date_input("Fecha Término", datetime.now())
-
     target_txt = st.text_input("Valor UF que buscas (Ej: 36000.50):")
     target_val = limpiar_monto(target_txt)
-
     if st.button("Iniciar Búsqueda") and target_val:
         if start_date > end_date:
             st.error("La fecha de inicio debe ser anterior a la de término.")
@@ -86,41 +76,31 @@ elif opcion == "Buscar Fecha por Valor":
             uf_history = []
             current = start_date
             total_days = (end_date - start_date).days + 1
-            
             progress_bar = st.progress(0)
             status_text = st.empty()
-            
-            # Bucle de búsqueda
             day_count = 0
             while current <= end_date:
                 f_str = current.strftime("%d-%m-%Y")
                 status_text.text(f"Consultando: {f_str}")
                 try:
-                    r = requests.get(f"https://mindicador.cl/api/uf/{f_str}")
+                    r = requests.get(f"https://mindicador.cl/api/uf/{f_str}", timeout=5)
                     d = r.json()
                     if d['serie']:
                         val = float(d['serie'][0]['valor'])
                         uf_history.append({'date': f_str, 'valor': val})
                 except: pass
-                
                 current += timedelta(days=1)
                 day_count += 1
                 progress_bar.progress(day_count / total_days)
-            
             status_text.empty()
             progress_bar.empty()
-
             if uf_history:
                 tolerance = 0.01
                 exacts = [i['date'] for i in uf_history if abs(i['valor'] - target_val) < tolerance]
-                
                 if exacts:
                     st.success(f"¡Encontrado! El valor ${target_val:,.2f} coincide con:")
                     for e in exacts: st.write(f"✅ {e}")
                 else:
                     st.warning(f"No hay coincidencia exacta para ${target_val:,.2f}.")
-                    # Buscar el más cercano
                     closest = min(uf_history, key=lambda x: abs(x['valor'] - target_val))
                     st.info(f"El día más cercano fue el **{closest['date']}** con un valor de **${closest['valor']:,.2f}**")
-            else:
-                st.error("No se pudieron obtener datos del servidor.")
