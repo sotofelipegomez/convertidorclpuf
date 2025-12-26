@@ -7,11 +7,8 @@ st.set_page_config(page_title="Herramientas UF Pro", page_icon="📈")
 # --- FUNCIÓN PARA FORMATO CHILENO (1.234,56) ---
 def formato_chile(valor, es_clp=False):
     if valor is None: return ""
-    # 0 decimales para CLP, 2 para UF
     decimales = 0 if es_clp else 2
-    # Formatear con comas en miles y punto en decimal
     txt = f"{valor:,.{decimales}f}"
-    # Invertir: Comas por puntos, puntos por comas
     return txt.replace(",", "X").replace(".", ",").replace("X", ".")
 
 # --- FUNCIÓN DE LIMPIEZA ROBUSTA ---
@@ -46,7 +43,6 @@ opcion = st.sidebar.radio(
     ["UF Automática (Fecha)", "UF Manual (Valor fijo)", "Buscar Fecha por Valor"]
 )
 
-# Limpiar historial si cambia de herramienta
 if st.session_state.last_opcion != opcion:
     st.session_state.historial = []
     st.session_state.last_opcion = opcion
@@ -76,7 +72,12 @@ if opcion == "UF Automática (Fecha)":
                         monto_num = limpiar_monto(monto_input)
                         if monto_num:
                             res_uf = monto_num / valor_uf
-                            st.session_state.historial.append({"clp": monto_num, "uf": res_uf, "fecha": fecha_str})
+                            # Guardamos la fecha y el valor en el historial
+                            st.session_state.historial.append({
+                                "clp": monto_num, 
+                                "uf": res_uf, 
+                                "ref": f"Fecha: {fecha_str} (${formato_chile(valor_uf)})"
+                            })
                 
                 if st.session_state.historial:
                     actual = st.session_state.historial[-1]
@@ -84,6 +85,8 @@ if opcion == "UF Automática (Fecha)":
                     col1, col2 = st.columns(2)
                     col1.metric("MONTO CLP", f"${formato_chile(actual['clp'], True)}")
                     col2.metric("TOTAL EN UF", f"{formato_chile(actual['uf'])} UF")
+                    # Referencia pequeña debajo del resultado
+                    st.caption(f"📌 Calculado con {actual['ref']}")
                     
                     if st.button("Limpiar historial de hoy"):
                         st.session_state.historial = []
@@ -92,7 +95,7 @@ if opcion == "UF Automática (Fecha)":
                     st.divider()
                     st.write("📜 Historial de esta sesión:")
                     for item in reversed(st.session_state.historial):
-                        st.code(f"CLP: ${formato_chile(item['clp'], True)} -> {formato_chile(item['uf'])} UF")
+                        st.code(f"CLP: ${formato_chile(item['clp'], True)} -> {formato_chile(item['uf'])} UF | {item['ref']}")
 
             else: st.warning("No hay datos para esa fecha.")
         except ValueError: st.error("Formato DD-MM-AAAA incorrecto.")
@@ -113,7 +116,12 @@ elif opcion == "UF Manual (Valor fijo)":
                 monto_num = limpiar_monto(monto_input)
                 if monto_num:
                     res_uf = monto_num / valor_uf_fijo
-                    st.session_state.historial.append({"clp": monto_num, "uf": res_uf})
+                    # Guardamos el valor base en el historial
+                    st.session_state.historial.append({
+                        "clp": monto_num, 
+                        "uf": res_uf,
+                        "ref": f"UF Fija: ${formato_chile(valor_uf_fijo)}"
+                    })
 
         if st.session_state.historial:
             actual = st.session_state.historial[-1]
@@ -121,6 +129,8 @@ elif opcion == "UF Manual (Valor fijo)":
             c1, c2 = st.columns(2)
             c1.metric("Ingresado", f"${formato_chile(actual['clp'], True)}")
             c2.metric("Conversión", f"{formato_chile(actual['uf'])} UF")
+
+            st.caption(f"📌 Calculado con {actual['ref']}")
             
             if st.button("Borrar lista"):
                 st.session_state.historial = []
@@ -128,7 +138,7 @@ elif opcion == "UF Manual (Valor fijo)":
             
             st.divider()
             for item in reversed(st.session_state.historial):
-                st.code(f"MONTO: ${formato_chile(item['clp'], True)} | UF: {formato_chile(item['uf'])}")
+                st.code(f"MONTO: ${formato_chile(item['clp'], True)} | UF: {formato_chile(item['uf'])} | {item['ref']}")
 
 elif opcion == "Buscar Fecha por Valor":
     st.title("🔍 Buscar Fecha según Valor UF")
