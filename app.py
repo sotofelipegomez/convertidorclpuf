@@ -20,31 +20,22 @@ def formato_chile(valor, es_clp=False):
     if valor is None: return ""
     decimales = 0 if es_clp else 2
     txt = f"{valor:,.{decimales}f}"
-    # Formato Chileno: Puntos para miles, Coma para decimal
     return txt.replace(",", "X").replace(".", ",").replace("X", ".")
 
 def limpiar_monto(texto):
     if not texto or not texto.strip(): return None
-    t = texto.strip()
+    t = texto.strip().replace("$", "").replace(" ", "")
     
-    # Eliminamos espacios y símbolos de moneda si existen
-    t = t.replace("$", "").replace(" ", "")
-    
-    # Lógica inteligente de limpieza:
-    # Si el número tiene puntos y comas (ej: 1.234,56 o 1,234.56)
     if "." in t and "," in t:
-        if t.rfind(".") > t.rfind(","): # Caso 1,234.56
+        if t.rfind(".") > t.rfind(","): 
             t = t.replace(",", "")
-        else: # Caso 1.234,56
+        else: 
             t = t.replace(".", "").replace(",", ".")
-    # Si solo tiene comas (ej: 123,456,789) -> las tratamos como separadores de miles
     elif "," in t:
-        # Si hay más de una coma o la coma está en posición de miles
         if t.count(",") > 1 or len(t.split(",")[-1]) != 2:
             t = t.replace(",", "")
         else:
             t = t.replace(",", ".")
-    # Si solo tiene puntos (ej: 123.456.789) -> los tratamos como miles
     elif "." in t:
         if t.count(".") > 1 or len(t.split(".")[-1]) != 2:
             t = t.replace(".", "")
@@ -67,83 +58,65 @@ if st.session_state.last_opcion != opcion:
 
 # --- 6. LÓGICA DE HERRAMIENTAS ---
 
-if opcion == "Calcular Valor UF (Inverso)":
-    st.title("🔍 Calcular Valor UF Utilizado")
-    st.write("Ingresa los totales para descubrir el valor de la UF unitaria.")
-    
-    with st.form("form_inverso", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        # Aquí el usuario puede ingresar 123,456,789 o 123.456.789 y funcionará igual
-        monto_clp_in = col1.text_input("Monto Total CLP:", placeholder="Ej: 123.456.789")
-        monto_uf_in = col2.text_input("Monto Total UF:", placeholder="Ej: 3.450,12")
-        
-        if st.form_submit_button("Revelar Valor UF"):
-            clp_val = limpiar_monto(monto_clp_in)
-            uf_val = limpiar_monto(monto_uf_in)
-            
-            if clp_val and uf_val and uf_val != 0:
-                uf_unitaria = clp_val / uf_val
-                item = {
-                    "clp": clp_val, 
-                    "uf": uf_val, 
-                    "res_unitario": uf_unitaria,
-                    "ref": "Cálculo Inverso", 
-                    "tipo": "INVERSO"
-                }
-                st.session_state.historial_ventana.append(item)
-                st.session_state.historial_acumulado.append(item)
-                st.rerun()
-            else:
-                st.error("Error: Verifica que los montos sean válidos.")
-
-    if st.session_state.historial_ventana:
-        actual = st.session_state.historial_ventana[-1]
-        st.markdown("### 💎 Valor UF detectado:")
-        st.metric("UF UNITARIA", f"${formato_chile(actual['res_unitario'])}")
-        st.write(f"Operación: {formato_chile(actual['clp'], True)} CLP / {formato_chile(actual['uf'])} UF")
-        
-        st.divider()
-        for it in reversed(st.session_state.historial_ventana):
-            st.code(f"Resultado: ${formato_chile(it['res_unitario'])} | (Total: ${formato_chile(it['clp'], True)} / {formato_chile(it['uf'])} UF)")
-
-# (Las demás funciones se mantienen con la nueva lógica de limpieza mejorada)
-elif opcion == "UF Automática (Fecha)":
+if opcion == "UF Automática (Fecha)":
     st.title("💰 UF Automática por Fecha")
-    fecha_txt = st.text_input("Ingresa la fecha (DD-MM-AAAA):", placeholder="01-07-2022")
-    if fecha_txt:
-        try:
-            fecha_valida = datetime.strptime(fecha_txt, "%d-%m-%Y")
-            f_str = fecha_valida.strftime("%d-%m-%Y")
-            url = f"https://mindicador.cl/api/uf/{f_str}"
-            data = requests.get(url).json()
-            v_uf = data['serie'][0]['valor'] if data['serie'] else None
-            if v_uf:
-                st.info(f"Valor UF detectado: **${formato_chile(v_uf)}**")
-                with st.form("form_auto", clear_on_submit=True):
-                    monto_input = st.text_input("Ingresa cantidad en CLP:")
-                    if st.form_submit_button("Convertir"):
+    
+    # Formulario unificado para evitar el error de "Fecha inválida"
+    with st.form("form_auto_completo", clear_on_submit=False):
+        fecha_input = st.text_input("Ingresa la fecha (DD-MM-AAAA):", placeholder="Ej: 01-07-2022")
+        monto_input = st.text_input("Ingresa cantidad en CLP:", placeholder="Ej: 123.123.123")
+        enviar = st.form_submit_button("Convertir")
+        
+        if enviar:
+            if not fecha_input or not monto_input:
+                st.error("Por favor, completa ambos campos.")
+            else:
+                try:
+                    fecha_valida = datetime.strptime(fecha_input, "%d-%m-%Y")
+                    f_str = fecha_valida.strftime("%d-%m-%Y")
+                    
+                    # Petición a la API
+                    url = f"https://mindicador.cl/api/uf/{f_str}"
+                    data = requests.get(url).json()
+                    
+                    if data['serie']:
+                        v_uf = data['serie'][0]['valor']
                         monto_num = limpiar_monto(monto_input)
+                        
                         if monto_num:
                             res_uf = monto_num / v_uf
-                            item = {"clp": monto_num, "uf": res_uf, "ref": f"Fecha: {f_str} (${formato_chile(v_uf)})", "tipo": "AUTO"}
+                            item = {
+                                "clp": monto_num, 
+                                "uf": res_uf, 
+                                "ref": f"Fecha: {f_str} (${formato_chile(v_uf)})", 
+                                "tipo": "AUTO"
+                            }
                             st.session_state.historial_ventana.append(item)
                             st.session_state.historial_acumulado.append(item)
-                            st.rerun()
-                if st.session_state.historial_ventana:
-                    act = st.session_state.historial_ventana[-1]
-                    st.markdown("### 💎 Resultado Actual:")
-                    c1, c2 = st.columns(2)
-                    c1.metric("MONTO CLP", f"${formato_chile(act['clp'], True)}")
-                    c2.metric("TOTAL EN UF", f"{formato_chile(act['uf'])} UF")
-                    st.divider()
-                    for it in reversed(st.session_state.historial_ventana):
-                        st.code(f"CLP: ${formato_chile(it['clp'], True)} -> {formato_chile(it['uf'])} UF | {it['ref']}")
-            else: st.warning("No hay datos.")
-        except: st.error("Fecha inválida.")
+                            st.success(f"Valor UF al {f_str}: ${formato_chile(v_uf)}")
+                        else:
+                            st.error("Monto CLP no válido.")
+                    else:
+                        st.warning("No hay datos de UF para esa fecha.")
+                except ValueError:
+                    st.error("Formato de fecha incorrecto (usa DD-MM-AAAA).")
+                except Exception as e:
+                    st.error(f"Error de conexión: {e}")
+
+    # Mostrar resultados debajo del formulario
+    if st.session_state.historial_ventana:
+        act = st.session_state.historial_ventana[-1]
+        st.markdown("### 💎 Resultado Actual:")
+        c1, c2 = st.columns(2)
+        c1.metric("MONTO CLP", f"${formato_chile(act['clp'], True)}")
+        c2.metric("TOTAL EN UF", f"{formato_chile(act['uf'])} UF")
+        st.divider()
+        for it in reversed(st.session_state.historial_ventana):
+            st.code(f"CLP: ${formato_chile(it['clp'], True)} -> {formato_chile(it['uf'])} UF | {it['ref']}")
 
 elif opcion == "UF Manual (Valor fijo)":
     st.title("⚙️ UF Manual")
-    v_uf_txt = st.text_input("1. Valor UF base:")
+    v_uf_txt = st.text_input("1. Valor UF base:", placeholder="35.000")
     v_fijo = limpiar_monto(v_uf_txt)
     if v_fijo:
         with st.form("form_manual", clear_on_submit=True):
@@ -166,14 +139,33 @@ elif opcion == "UF Manual (Valor fijo)":
             for it in reversed(st.session_state.historial_ventana):
                 st.code(f"MONTO: ${formato_chile(it['clp'], True)} | UF: {formato_chile(it['uf'])} | {it['ref']}")
 
+elif opcion == "Calcular Valor UF (Inverso)":
+    st.title("🔍 Calcular Valor UF Utilizado")
+    with st.form("form_inverso", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        monto_clp_in = col1.text_input("Monto Total CLP:", placeholder="Ej: 123.456.789")
+        monto_uf_in = col2.text_input("Monto Total UF:", placeholder="Ej: 3.450,12")
+        if st.form_submit_button("Revelar Valor UF"):
+            clp_val = limpiar_monto(monto_clp_in)
+            uf_val = limpiar_monto(monto_uf_in)
+            if clp_val and uf_val and uf_val != 0:
+                uf_unitaria = clp_val / uf_val
+                item = {"clp": clp_val, "uf": uf_val, "res_unitario": uf_unitaria, "ref": "Cálculo Inverso", "tipo": "INVERSO"}
+                st.session_state.historial_ventana.append(item)
+                st.session_state.historial_acumulado.append(item)
+                st.rerun()
+
+    if st.session_state.historial_ventana:
+        actual = st.session_state.historial_ventana[-1]
+        st.markdown("### 💎 Valor UF detectado:")
+        st.metric("UF UNITARIA", f"${formato_chile(actual['res_unitario'])}")
+        st.divider()
+        for it in reversed(st.session_state.historial_ventana):
+            st.code(f"Resultado: ${formato_chile(it['res_unitario'])} | (Total: ${formato_chile(it['clp'], True)} / {formato_chile(it['uf'])} UF)")
+
 elif opcion == "Buscar Fecha por Valor":
     st.title("🔍 Buscar Fecha según Valor UF")
-    col1, col2 = st.columns(2)
-    with col1: ini = st.text_input("Fecha Inicio:")
-    with col2: fin = st.text_input("Fecha Término:")
-    t_val = limpiar_monto(st.text_input("Valor UF a buscar:"))
-    if st.button("Buscar") and t_val:
-        st.write("Buscando datos...")
+    st.write("Módulo de búsqueda avanzada.")
 
 elif opcion == "📜 Historial General":
     st.title("📜 Historial Acumulado Eterno")
