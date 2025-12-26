@@ -24,9 +24,9 @@ def limpiar_monto(texto):
         return float(res)
     except: return None
 
-# --- GESTIÓN DE SESIÓN ---
-if 'last_opcion' not in st.session_state:
-    st.session_state.last_opcion = ""
+# --- GESTIÓN DE SESIÓN PERSISTENTE ---
+# Inicializamos el historial una sola vez al cargar la app por primera vez
+if 'historial' not in st.session_state:
     st.session_state.historial = []
 
 # MENÚ LATERAL
@@ -35,11 +35,6 @@ opcion = st.sidebar.radio(
     "Selecciona una herramienta:",
     ["UF Automática (Fecha)", "UF Manual (Valor fijo)", "Buscar Fecha por Valor"]
 )
-
-# Limpiar historial si cambia de herramienta
-if st.session_state.last_opcion != opcion:
-    st.session_state.historial = []
-    st.session_state.last_opcion = opcion
 
 # --- LÓGICA DE PÁGINAS ---
 
@@ -66,7 +61,12 @@ if opcion == "UF Automática (Fecha)":
                         monto_num = limpiar_monto(monto_input)
                         if monto_num:
                             res_uf = monto_num / valor_uf
-                            st.session_state.historial.append({"clp": monto_num, "uf": res_uf, "fecha": fecha_str})
+                            st.session_state.historial.append({
+                                "tipo": "Auto",
+                                "clp": monto_num, 
+                                "uf": res_uf, 
+                                "info": fecha_str
+                            })
                 
                 if st.session_state.historial:
                     actual = st.session_state.historial[-1]
@@ -75,14 +75,15 @@ if opcion == "UF Automática (Fecha)":
                     col1.metric("MONTO CLP", f"${actual['clp']:,.0f}".replace(",", "."))
                     col2.metric("TOTAL EN UF", f"{actual['uf']:,.2f} UF")
                     
-                    if st.button("Limpiar historial de hoy"):
+                    if st.button("🗑️ Borrar todo el historial"):
                         st.session_state.historial = []
                         st.rerun()
                     
                     st.divider()
-                    st.write("📜 Historial de esta sesión:")
+                    st.write("📜 Historial acumulado (todas las pestañas):")
                     for item in reversed(st.session_state.historial):
-                        st.code(f"CLP: ${item['clp']:,.0f} -> {item['uf']:,.2f} UF")
+                        label = f"[{item['tipo']}]"
+                        st.code(f"{label} CLP: ${item['clp']:,.0f} -> {item['uf']:,.2f} UF ({item.get('info', '')})")
 
             else: st.warning("No hay datos para esa fecha.")
         except ValueError: st.error("Formato DD-MM-AAAA incorrecto.")
@@ -103,7 +104,12 @@ elif opcion == "UF Manual (Valor fijo)":
                 monto_num = limpiar_monto(monto_input)
                 if monto_num:
                     res_uf = monto_num / valor_uf_fijo
-                    st.session_state.historial.append({"clp": monto_num, "uf": res_uf})
+                    st.session_state.historial.append({
+                        "tipo": "Manual",
+                        "clp": monto_num, 
+                        "uf": res_uf,
+                        "info": f"Base: ${valor_uf_fijo:,.0f}"
+                    })
 
         if st.session_state.historial:
             actual = st.session_state.historial[-1]
@@ -112,13 +118,15 @@ elif opcion == "UF Manual (Valor fijo)":
             c1.metric("Ingresado", f"${actual['clp']:,.0f}".replace(",", "."))
             c2.metric("Conversión", f"{actual['uf']:,.2f} UF")
             
-            if st.button("Borrar lista"):
+            if st.button("🗑️ Borrar todo el historial"):
                 st.session_state.historial = []
                 st.rerun()
             
             st.divider()
+            st.write("📜 Historial acumulado (todas las pestañas):")
             for item in reversed(st.session_state.historial):
-                st.code(f"MONTO: ${item['clp']:,.0f} | UF: {item['uf']:,.2f}")
+                label = f"[{item['tipo']}]"
+                st.code(f"{label} MONTO: ${item['clp']:,.0f} | UF: {item['uf']:,.2f} ({item.get('info', '')})")
 
 elif opcion == "Buscar Fecha por Valor":
     st.title("🔍 Buscar Fecha según Valor UF")
