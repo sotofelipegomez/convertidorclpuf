@@ -1,94 +1,126 @@
 import streamlit as st
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- CONFIGURACIÓN DE LA WEB ---
-st.set_page_config(page_title="Mi Panel de UF", page_icon="📈")
+st.set_page_config(page_title="Herramientas UF Pro", page_icon="📈")
 
-# --- FUNCIÓN COMPARTIDA (Tu lógica de limpieza robusta) ---
-def limpiar_monto_clp(texto):
-    if not texto.strip():
-        return None
-    
-    monto_input_processed = texto.strip()
-    clp_limpio = monto_input_processed
-    last_comma_idx = monto_input_processed.rfind(',')
-    last_dot_idx = monto_input_processed.rfind('.')
-
-    if last_comma_idx != -1 and last_dot_idx != -1:
-        if last_comma_idx > last_dot_idx:
-            clp_limpio = monto_input_processed.replace(".", "").replace(",", ".")
-        else:
-            clp_limpio = monto_input_processed.replace(",", "")
-    elif last_comma_idx != -1:
-        parts = monto_input_processed.split(',')
-        if len(parts[-1]) == 2 and len(parts) > 1:
-             clp_limpio = monto_input_processed.replace(",", ".")
-        else:
-            clp_limpio = monto_input_processed.replace(",", "")
-    elif last_dot_idx != -1:
-        parts = monto_input_processed.split('.')
-        if len(parts[-1]) == 2 and len(parts) > 1:
-             clp_limpio = monto_input_processed
-        else:
-            clp_limpio = monto_input_processed.replace(".", "")
-    
+# --- FUNCIÓN DE LIMPIEZA ROBUSTA ---
+def limpiar_monto(texto):
+    if not texto or not texto.strip(): return None
+    t = texto.strip()
+    last_comma = t.rfind(',')
+    last_dot = t.rfind('.')
     try:
-        return float(clp_limpio)
-    except:
-        return None
+        if last_comma != -1 and last_dot != -1:
+            res = t.replace(".", "").replace(",", ".") if last_comma > last_dot else t.replace(",", "")
+        elif last_comma != -1:
+            parts = t.split(',')
+            res = t.replace(",", ".") if len(parts[-1]) == 2 and len(parts) > 1 else t.replace(",", "")
+        elif last_dot != -1:
+            parts = t.split('.')
+            res = t if len(parts[-1]) == 2 and len(parts) > 1 else t.replace(".", "")
+        else:
+            res = t
+        return float(res)
+    except: return None
 
-# --- MENÚ DE OPCIONES (BARRA LATERAL) ---
-st.sidebar.title("Menú de Herramientas")
+# --- MENÚ LATERAL ---
+st.sidebar.title("Menú Principal")
 opcion = st.sidebar.radio(
-    "Selecciona qué quieres hacer:",
-    ("UF Automática (por fecha)", "UF Manual (valor fijo)")
+    "Selecciona una herramienta:",
+    ["UF Automática (Fecha)", "UF Manual (Valor fijo)", "Buscar Fecha por Valor"]
 )
 
-st.sidebar.divider()
-st.sidebar.caption("Solo para uso personal")
-
-# --- OPCIÓN 1: UF AUTOMÁTICA ---
-if opcion == "UF Automática (por fecha)":
-    st.title("💰 UF Automática (API)")
-    st.info("Esta opción busca el valor oficial de la UF en una fecha específica.")
-
-    fecha_sel = st.date_input("1. Selecciona la fecha:", value=datetime.now())
-    fecha_url = fecha_sel.strftime("%d-%m-%Y")
-
-    # Obtener valor de la API
-    url = f"https://mindicador.cl/api/uf/{fecha_url}"
+# --- 1. UF AUTOMÁTICA ---
+if opcion == "UF Automática (Fecha)":
+    st.title("💰 UF Automática por Fecha")
+    fecha_sel = st.date_input("Selecciona la fecha:", value=datetime.now())
+    fecha_str = fecha_sel.strftime("%d-%m-%Y")
+    
+    url = f"https://mindicador.cl/api/uf/{fecha_str}"
     try:
         data = requests.get(url).json()
-        if data['serie']:
-            valor_uf = data['serie'][0]['valor']
-            st.success(f"Valor UF detectado: **${valor_uf:,.2f}**")
-            
-            monto_input = st.text_input("2. Ingresa monto en CLP para convertir:")
-            monto_final = limpiar_monto_clp(monto_input)
-            
-            if monto_final:
-                resultado_uf = monto_final / valor_uf
-                st.metric("Resultado", f"{resultado_uf:,.2f} UF")
-        else:
-            st.warning("No hay datos para esta fecha.")
-    except:
-        st.error("Error al conectar con la API.")
+        valor_uf = data['serie'][0]['valor'] if data['serie'] else None
+        if valor_uf:
+            st.success(f"Valor UF: **${valor_uf:,.2f}**")
+            monto_txt = st.text_input("Monto en CLP:")
+            monto_num = limpiar_monto(monto_txt)
+            if monto_num:
+                res = monto_num / valor_uf
+                st.metric("Resultado", f"{res:,.2f} UF")
+        else: st.warning("No hay datos para esta fecha.")
+    except: st.error("Error de conexión.")
 
-# --- OPCIÓN 2: UF MANUAL ---
-elif opcion == "UF Manual (valor fijo)":
-    st.title("⚙️ UF con Valor Manual")
-    st.info("Usa esta opción si ya conoces el valor de la UF o quieres usar uno ficticio.")
-
-    uf_manual_raw = st.text_input("1. Ingresa el valor de la UF que quieres usar:", placeholder="Ej: 37123.45")
-    valor_uf_fijo = limpiar_monto_clp(uf_manual_raw)
-
+# --- 2. UF MANUAL ---
+elif opcion == "UF Manual (Valor fijo)":
+    st.title("⚙️ UF Manual")
+    uf_manual_txt = st.text_input("Valor de la UF a usar:", placeholder="Ej: 37500.50")
+    valor_uf_fijo = limpiar_monto(uf_manual_txt)
     if valor_uf_fijo:
-        st.write(f"Sincronizado con UF a: **${valor_uf_fijo:,.2f}**")
-        
-        monto_input = st.text_input("2. Ingresa monto en CLP para convertir:")
-        monto_final = limpiar_monto_clp(monto_input)
-        
-        if monto_final:
-            resultado_uf = monto_final / valor_uf_fijo
-            st.metric("Resultado", f"{resultado_uf:,.2f} UF")
+        st.info(f"Usando UF: **${valor_uf_fijo:,.2f}**")
+        monto_txt = st.text_input("Monto en CLP:")
+        monto_num = limpiar_monto(monto_txt)
+        if monto_num:
+            res = monto_num / valor_uf_fijo
+            st.metric("Resultado", f"{res:,.2f} UF")
+
+# --- 3. BUSCAR FECHA POR VALOR (Nuevo Código) ---
+elif opcion == "Buscar Fecha por Valor":
+    st.title("🔍 Buscar Fecha según Valor UF")
+    st.write("Busca qué día la UF tuvo (o se acercó) a un valor específico.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input("Fecha Inicio", datetime.now() - timedelta(days=30))
+    with col2:
+        end_date = st.date_input("Fecha Término", datetime.now())
+
+    target_txt = st.text_input("Valor UF que buscas (Ej: 36000.50):")
+    target_val = limpiar_monto(target_txt)
+
+    if st.button("Iniciar Búsqueda") and target_val:
+        if start_date > end_date:
+            st.error("La fecha de inicio debe ser anterior a la de término.")
+        else:
+            uf_history = []
+            current = start_date
+            total_days = (end_date - start_date).days + 1
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Bucle de búsqueda
+            day_count = 0
+            while current <= end_date:
+                f_str = current.strftime("%d-%m-%Y")
+                status_text.text(f"Consultando: {f_str}")
+                try:
+                    r = requests.get(f"https://mindicador.cl/api/uf/{f_str}")
+                    d = r.json()
+                    if d['serie']:
+                        val = float(d['serie'][0]['valor'])
+                        uf_history.append({'date': f_str, 'valor': val})
+                except: pass
+                
+                current += timedelta(days=1)
+                day_count += 1
+                progress_bar.progress(day_count / total_days)
+            
+            status_text.empty()
+            progress_bar.empty()
+
+            if uf_history:
+                tolerance = 0.01
+                exacts = [i['date'] for i in uf_history if abs(i['valor'] - target_val) < tolerance]
+                
+                if exacts:
+                    st.success(f"¡Encontrado! El valor ${target_val:,.2f} coincide con:")
+                    for e in exacts: st.write(f"✅ {e}")
+                else:
+                    st.warning(f"No hay coincidencia exacta para ${target_val:,.2f}.")
+                    # Buscar el más cercano
+                    closest = min(uf_history, key=lambda x: abs(x['valor'] - target_val))
+                    st.info(f"El día más cercano fue el **{closest['date']}** con un valor de **${closest['valor']:,.2f}**")
+            else:
+                st.error("No se pudieron obtener datos del servidor.")
