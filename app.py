@@ -2,83 +2,93 @@ import streamlit as st
 import requests
 from datetime import datetime
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Conversor CLP a UF", page_icon="🇨🇱")
+# --- CONFIGURACIÓN DE LA WEB ---
+st.set_page_config(page_title="Mi Panel de UF", page_icon="📈")
 
-# Título e instrucciones
-st.title("💰 Conversor Inteligente CLP a UF")
-st.markdown("Extrae el valor de la UF automáticamente y convierte montos de forma robusta.")
-
-# --- 1. SELECCIÓN DE FECHA ---
-# Usamos un widget de calendario en lugar de input de texto
-fecha_sel = st.date_input("Selecciona la fecha para el valor UF:", value=datetime.now())
-fecha_url = fecha_sel.strftime("%d-%m-%Y")
-
-# --- 2. OBTENER VALOR UF (Lógica de tu Colab) ---
-@st.cache_data(ttl=3600) # Esto guarda el valor por 1 hora para que la web sea rápida
-def obtener_valor_uf(fecha_str):
-    try:
-        url = f"https://mindicador.cl/api/uf/{fecha_str}"
-        response = requests.get(url)
-        data = response.json()
-        if data['serie']:
-            return data['serie'][0]['valor']
+# --- FUNCIÓN COMPARTIDA (Tu lógica de limpieza robusta) ---
+def limpiar_monto_clp(texto):
+    if not texto.strip():
         return None
+    
+    monto_input_processed = texto.strip()
+    clp_limpio = monto_input_processed
+    last_comma_idx = monto_input_processed.rfind(',')
+    last_dot_idx = monto_input_processed.rfind('.')
+
+    if last_comma_idx != -1 and last_dot_idx != -1:
+        if last_comma_idx > last_dot_idx:
+            clp_limpio = monto_input_processed.replace(".", "").replace(",", ".")
+        else:
+            clp_limpio = monto_input_processed.replace(",", "")
+    elif last_comma_idx != -1:
+        parts = monto_input_processed.split(',')
+        if len(parts[-1]) == 2 and len(parts) > 1:
+             clp_limpio = monto_input_processed.replace(",", ".")
+        else:
+            clp_limpio = monto_input_processed.replace(",", "")
+    elif last_dot_idx != -1:
+        parts = monto_input_processed.split('.')
+        if len(parts[-1]) == 2 and len(parts) > 1:
+             clp_limpio = monto_input_processed
+        else:
+            clp_limpio = monto_input_processed.replace(".", "")
+    
+    try:
+        return float(clp_limpio)
     except:
         return None
 
-valor_uf_fecha = obtener_valor_uf(fecha_url)
+# --- MENÚ DE OPCIONES (BARRA LATERAL) ---
+st.sidebar.title("Menú de Herramientas")
+opcion = st.sidebar.radio(
+    "Selecciona qué quieres hacer:",
+    ("UF Automática (por fecha)", "UF Manual (valor fijo)")
+)
 
-if valor_uf_fecha:
-    st.info(f"✅ Valor UF detectado para el {fecha_url}: **${valor_uf_fecha:,.2f}**")
-    
-    # --- 3. ENTRADA DE MONTO ---
-    monto_input = st.text_input("Ingresa la cantidad en CLP (Ej: 132.132.122 o 132,132,122.48):", placeholder="0")
+st.sidebar.divider()
+st.sidebar.caption("Solo para uso personal")
 
-    if monto_input:
-        # Tu lógica de LIMPIEZA Y PARSEO ROBUSTO (Mantenida igual)
-        monto_input_processed = monto_input.strip()
-        clp_limpio = monto_input_processed
-        last_comma_idx = monto_input_processed.rfind(',')
-        last_dot_idx = monto_input_processed.rfind('.')
+# --- OPCIÓN 1: UF AUTOMÁTICA ---
+if opcion == "UF Automática (por fecha)":
+    st.title("💰 UF Automática (API)")
+    st.info("Esta opción busca el valor oficial de la UF en una fecha específica.")
 
-        if last_comma_idx != -1 and last_dot_idx != -1:
-            if last_comma_idx > last_dot_idx:
-                clp_limpio = monto_input_processed.replace(".", "").replace(",", ".")
-            else:
-                clp_limpio = monto_input_processed.replace(",", "")
-        elif last_comma_idx != -1:
-            parts = monto_input_processed.split(',')
-            if len(parts[-1]) == 2 and len(parts) > 1:
-                 clp_limpio = monto_input_processed.replace(",", ".")
-            else:
-                clp_limpio = monto_input_processed.replace(",", "")
-        elif last_dot_idx != -1:
-            parts = monto_input_processed.split('.')
-            if len(parts[-1]) == 2 and len(parts) > 1:
-                 clp_limpio = monto_input_processed
-            else:
-                clp_limpio = monto_input_processed.replace(".", "")
+    fecha_sel = st.date_input("1. Selecciona la fecha:", value=datetime.now())
+    fecha_url = fecha_sel.strftime("%d-%m-%Y")
 
-        try:
-            monto_clp = float(clp_limpio)
-            monto_uf = monto_clp / valor_uf_fecha
+    # Obtener valor de la API
+    url = f"https://mindicador.cl/api/uf/{fecha_url}"
+    try:
+        data = requests.get(url).json()
+        if data['serie']:
+            valor_uf = data['serie'][0]['valor']
+            st.success(f"Valor UF detectado: **${valor_uf:,.2f}**")
             
-            # Formateo para mostrar en pantalla
-            uf_final = "{:,.2f}".format(monto_uf).replace(",", "X").replace(".", ",").replace("X", ".")
-            clp_bonito = "{:,.0f}".format(monto_clp).replace(",", ".")
+            monto_input = st.text_input("2. Ingresa monto en CLP para convertir:")
+            monto_final = limpiar_monto_clp(monto_input)
+            
+            if monto_final:
+                resultado_uf = monto_final / valor_uf
+                st.metric("Resultado", f"{resultado_uf:,.2f} UF")
+        else:
+            st.warning("No hay datos para esta fecha.")
+    except:
+        st.error("Error al conectar con la API.")
 
-            # --- RESULTADO VISUAL ---
-            st.divider()
-            col1, col2 = st.columns(2)
-            col1.metric("Monto CLP", f"${clp_bonito}")
-            col2.metric("Equivalencia UF", f"{uf_final} UF")
-            st.divider()
+# --- OPCIÓN 2: UF MANUAL ---
+elif opcion == "UF Manual (valor fijo)":
+    st.title("⚙️ UF con Valor Manual")
+    st.info("Usa esta opción si ya conoces el valor de la UF o quieres usar uno ficticio.")
 
-        except ValueError:
-            st.error("❌ Error: No pudimos reconocer el monto. Revisa el formato.")
-else:
-    st.error(f"No se encontraron datos de UF para la fecha {fecha_url}.")
+    uf_manual_raw = st.text_input("1. Ingresa el valor de la UF que quieres usar:", placeholder="Ej: 37123.45")
+    valor_uf_fijo = limpiar_monto_clp(uf_manual_raw)
 
-# Pie de página
-st.caption("Solo tú tienes acceso a esta herramienta privada.")
+    if valor_uf_fijo:
+        st.write(f"Sincronizado con UF a: **${valor_uf_fijo:,.2f}**")
+        
+        monto_input = st.text_input("2. Ingresa monto en CLP para convertir:")
+        monto_final = limpiar_monto_clp(monto_input)
+        
+        if monto_final:
+            resultado_uf = monto_final / valor_uf_fijo
+            st.metric("Resultado", f"{resultado_uf:,.2f} UF")
