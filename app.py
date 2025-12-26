@@ -4,12 +4,14 @@ from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Herramientas UF Pro", page_icon="📈")
 
-# --- FUNCIÓN DE FORMATO CHILENO (Puntos para miles, coma para decimales) ---
-def formatear_chile(valor, es_clp=False):
+# --- FUNCIÓN PARA FORMATO CHILENO (1.234,56) ---
+def formato_chile(valor, es_clp=False):
     if valor is None: return ""
+    # 0 decimales para CLP, 2 para UF
     decimales = 0 if es_clp else 2
-    # Formateamos con comas y puntos estándar, luego los trocamos
+    # Formatear con comas en miles y punto en decimal
     txt = f"{valor:,.{decimales}f}"
+    # Invertir: Comas por puntos, puntos por comas
     return txt.replace(",", "X").replace(".", ",").replace("X", ".")
 
 # --- FUNCIÓN DE LIMPIEZA ROBUSTA ---
@@ -32,8 +34,9 @@ def limpiar_monto(texto):
         return float(res)
     except: return None
 
-# --- GESTIÓN DE SESIÓN PERSISTENTE ---
-if 'historial' not in st.session_state:
+# --- GESTIÓN DE SESIÓN ---
+if 'last_opcion' not in st.session_state:
+    st.session_state.last_opcion = ""
     st.session_state.historial = []
 
 # MENÚ LATERAL
@@ -42,6 +45,11 @@ opcion = st.sidebar.radio(
     "Selecciona una herramienta:",
     ["UF Automática (Fecha)", "UF Manual (Valor fijo)", "Buscar Fecha por Valor"]
 )
+
+# Limpiar historial si cambia de herramienta
+if st.session_state.last_opcion != opcion:
+    st.session_state.historial = []
+    st.session_state.last_opcion = opcion
 
 # --- LÓGICA DE PÁGINAS ---
 
@@ -58,7 +66,7 @@ if opcion == "UF Automática (Fecha)":
             valor_uf = data['serie'][0]['valor'] if data['serie'] else None
             
             if valor_uf:
-                st.info(f"Valor UF detectado: **${formatear_chile(valor_uf)}**")
+                st.info(f"Valor UF detectado: **${formato_chile(valor_uf)}**")
                 
                 with st.form("form_auto", clear_on_submit=True):
                     monto_input = st.text_input("Ingresa cantidad en CLP:")
@@ -68,41 +76,34 @@ if opcion == "UF Automática (Fecha)":
                         monto_num = limpiar_monto(monto_input)
                         if monto_num:
                             res_uf = monto_num / valor_uf
-                            # Guardamos tipo y fecha para el historial mixto
-                            st.session_state.historial.append({
-                                "tipo": "AUTO", "clp": monto_num, "uf": res_uf, "extra": fecha_str
-                            })
-                            st.rerun()
+                            st.session_state.historial.append({"clp": monto_num, "uf": res_uf, "fecha": fecha_str})
                 
                 if st.session_state.historial:
                     actual = st.session_state.historial[-1]
                     st.subheader("Resultado Actual:")
                     col1, col2 = st.columns(2)
-                    col1.metric("MONTO CLP", f"${formatear_chile(actual['clp'], True)}")
-                    col2.metric("TOTAL EN UF", f"{formatear_chile(actual['uf'])} UF")
+                    col1.metric("MONTO CLP", f"${formato_chile(actual['clp'], True)}")
+                    col2.metric("TOTAL EN UF", f"{formato_chile(actual['uf'])} UF")
                     
-                    if st.button("Limpiar todo el historial"):
+                    if st.button("Limpiar historial de hoy"):
                         st.session_state.historial = []
                         st.rerun()
                     
                     st.divider()
-                    st.write("📜 Historial acumulado:")
+                    st.write("📜 Historial de esta sesión:")
                     for item in reversed(st.session_state.historial):
-                        clp_f = formatear_chile(item['clp'], True)
-                        uf_f = formatear_chile(item['uf'])
-                        info = item.get('extra', 'Manual')
-                        st.code(f"[{item['tipo']}] CLP: ${clp_f} -> {uf_f} UF ({info})")
+                        st.code(f"CLP: ${formato_chile(item['clp'], True)} -> {formato_chile(item['uf'])} UF")
 
             else: st.warning("No hay datos para esa fecha.")
         except ValueError: st.error("Formato DD-MM-AAAA incorrecto.")
 
 elif opcion == "UF Manual (Valor fijo)":
     st.title("⚙️ UF Manual")
-    uf_manual_txt = st.text_input("1. Ingresa el valor de la UF base:", placeholder="33750,00")
+    uf_manual_txt = st.text_input("1. Ingresa el valor de la UF base:", placeholder="33750.00")
     valor_uf_fijo = limpiar_monto(uf_manual_txt)
     
     if valor_uf_fijo:
-        st.write(f"-> Valor UF fijado: **${formatear_chile(valor_uf_fijo)}**")
+        st.write(f"-> Valor UF fijado: **${formato_chile(valor_uf_fijo)}**")
         
         with st.form("form_manual", clear_on_submit=True):
             monto_input = st.text_input("2. Ingresa cantidad en CLP:")
@@ -112,17 +113,14 @@ elif opcion == "UF Manual (Valor fijo)":
                 monto_num = limpiar_monto(monto_input)
                 if monto_num:
                     res_uf = monto_num / valor_uf_fijo
-                    st.session_state.historial.append({
-                        "tipo": "MANUAL", "clp": monto_num, "uf": res_uf, "extra": f"Base: {formatear_chile(valor_uf_fijo)}"
-                    })
-                    st.rerun()
+                    st.session_state.historial.append({"clp": monto_num, "uf": res_uf})
 
         if st.session_state.historial:
             actual = st.session_state.historial[-1]
             st.markdown("### 💎 Último Cálculo:")
             c1, c2 = st.columns(2)
-            c1.metric("Ingresado", f"${formatear_chile(actual['clp'], True)}")
-            c2.metric("Conversión", f"{formatear_chile(actual['uf'])} UF")
+            c1.metric("Ingresado", f"${formato_chile(actual['clp'], True)}")
+            c2.metric("Conversión", f"{formato_chile(actual['uf'])} UF")
             
             if st.button("Borrar lista"):
                 st.session_state.historial = []
@@ -130,9 +128,7 @@ elif opcion == "UF Manual (Valor fijo)":
             
             st.divider()
             for item in reversed(st.session_state.historial):
-                clp_f = formatear_chile(item['clp'], True)
-                uf_f = formatear_chile(item['uf'])
-                st.code(f"[{item['tipo']}] MONTO: ${clp_f} | UF: {uf_f}")
+                st.code(f"MONTO: ${formato_chile(item['clp'], True)} | UF: {formato_chile(item['uf'])}")
 
 elif opcion == "Buscar Fecha por Valor":
     st.title("🔍 Buscar Fecha según Valor UF")
@@ -167,5 +163,5 @@ elif opcion == "Buscar Fecha por Valor":
                     for e in exacts: st.write(f"✅ {e}")
                 else:
                     closest = min(uf_history, key=lambda x: abs(x['valor'] - target_val))
-                    st.warning(f"Más cercano: {closest['date']} (${formatear_chile(closest['valor'])})")
+                    st.warning(f"Más cercano: {closest['date']} (${formato_chile(closest['valor'])})")
         except: st.error("Error en formato de fechas.")
