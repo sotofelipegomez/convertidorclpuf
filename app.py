@@ -32,7 +32,6 @@ def limpiar_monto(texto):
     except: return None
 
 # --- GESTIÓN DE SESIÓN PERSISTENTE ---
-# Usamos una clave que no se limpie al cambiar de opción
 if 'historial_persistente' not in st.session_state:
     st.session_state.historial_persistente = []
 
@@ -75,6 +74,25 @@ if opcion == "UF Automática (Fecha)":
                             })
                             st.rerun()
 
+                # RESULTADOS E HISTORIAL DENTRO DE LA PESTAÑA (Para que al cambiar de pestaña vuelvas arriba)
+                if st.session_state.historial_persistente:
+                    st.divider()
+                    actual = st.session_state.historial_persistente[-1]
+                    st.markdown("### 💎 Resultado Actual:")
+                    col1, col2 = st.columns(2)
+                    col1.metric("MONTO CLP", f"${formato_chile(actual['clp'], True)}")
+                    col2.metric("TOTAL EN UF", f"{formato_chile(actual['uf'])} UF")
+                    st.caption(f"📌 Calculado con {actual['ref']}")
+                    
+                    if st.button("🗑️ Borrar historial manualmente"):
+                        st.session_state.historial_persistente = []
+                        st.rerun()
+                    
+                    st.divider()
+                    st.write("📜 Historial acumulado:")
+                    for item in reversed(st.session_state.historial_persistente):
+                        st.code(f"CLP: ${formato_chile(item['clp'], True)} -> {formato_chile(item['uf'])} UF | {item['ref']}")
+
             else: st.warning("No hay datos para esa fecha.")
         except ValueError: st.error("Formato DD-MM-AAAA incorrecto.")
 
@@ -101,6 +119,23 @@ elif opcion == "UF Manual (Valor fijo)":
                     })
                     st.rerun()
 
+        if st.session_state.historial_persistente:
+            st.divider()
+            actual = st.session_state.historial_persistente[-1]
+            st.markdown("### 💎 Último Cálculo:")
+            c1, c2 = st.columns(2)
+            c1.metric("Ingresado", f"${formato_chile(actual['clp'], True)}")
+            c2.metric("Conversión", f"{formato_chile(actual['uf'])} UF")
+            st.caption(f"📌 Calculado con {actual['ref']}")
+            
+            if st.button("🗑️ Borrar lista"):
+                st.session_state.historial_persistente = []
+                st.rerun()
+            
+            st.divider()
+            for item in reversed(st.session_state.historial_persistente):
+                st.code(f"MONTO: ${formato_chile(item['clp'], True)} | UF: {formato_chile(item['uf'])} | {item['ref']}")
+
 elif opcion == "Buscar Fecha por Valor":
     st.title("🔍 Buscar Fecha según Valor UF")
     col1, col2 = st.columns(2)
@@ -110,7 +145,6 @@ elif opcion == "Buscar Fecha por Valor":
     target_val = limpiar_monto(target_txt)
 
     if st.button("Iniciar Búsqueda") and target_val:
-        # (Lógica de búsqueda se mantiene igual)
         try:
             start_date = datetime.strptime(inicio_txt, "%d-%m-%Y")
             end_date = datetime.strptime(fin_txt, "%d-%m-%Y")
@@ -122,34 +156,16 @@ elif opcion == "Buscar Fecha por Valor":
                 f_str = current.strftime("%d-%m-%Y")
                 try:
                     r = requests.get(f"https://mindicador.cl/api/uf/{f_str}", timeout=5).json()
-                    if r['serie']: uf_history.append({'date': f_str, 'valor': r['serie'][0]['valor']})
+                    if r['serie']:
+                        uf_history.append({'date': f_str, 'valor': r['serie'][0]['valor']})
                 except: pass
                 progress_bar.progress((i + 1) / total_days)
             if uf_history:
                 exacts = [it['date'] for it in uf_history if abs(it['valor'] - target_val) < 0.01]
                 if exacts:
-                    for e in exacts: st.success(f"✅ Encontrado: {e}")
+                    st.success(f"Encontrado en {len(exacts)} fechas:")
+                    for e in exacts: st.write(f"✅ {e}")
                 else:
                     closest = min(uf_history, key=lambda x: abs(x['valor'] - target_val))
                     st.warning(f"Más cercano: {closest['date']} (${formato_chile(closest['valor'])})")
         except: st.error("Error en fechas.")
-
-# --- SECCIÓN DE RESULTADOS E HISTORIAL (COMÚN Y PERSISTENTE) ---
-if st.session_state.historial_persistente:
-    st.divider()
-    actual = st.session_state.historial_persistente[-1]
-    
-    st.subheader("Resultado Actual:")
-    col1, col2 = st.columns(2)
-    col1.metric("MONTO CLP", f"${formato_chile(actual['clp'], True)}")
-    col2.metric("TOTAL EN UF", f"{formato_chile(actual['uf'])} UF")
-    st.caption(f"📌 Calculado con {actual['ref']}")
-    
-    if st.button("🗑️ Borrar historial manualmente"):
-        st.session_state.historial_persistente = []
-        st.rerun()
-    
-    st.divider()
-    st.write("📜 Historial acumulado:")
-    for item in reversed(st.session_state.historial_persistente):
-        st.code(f"CLP: ${formato_chile(item['clp'], True)} -> {formato_chile(item['uf'])} UF | {item['ref']}")
